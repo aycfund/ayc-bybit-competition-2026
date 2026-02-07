@@ -1,9 +1,8 @@
-# ATR Adaptive Grid Strategy V9.5 - Complete Specification
+# ATR Adaptive Grid Strategy V9.5 - Strategy Overview
 
 > **Version**: 9.5 (February 2026)
 > **Team**: AYC Fund (YC W22)
 > **AI Model**: Claude Code Opus 4.6
-> **Validated**: Monte Carlo 10,000 iterations, 365 days, 24 symbols
 
 ---
 
@@ -15,7 +14,7 @@ The ATR Adaptive Grid Strategy V9.5 is an AI-powered cryptocurrency trading syst
 - **EMA trend filter** for directional bias
 - **4-Quadrant regime classification** for market-adaptive behavior
 - **Hedge mode** for simultaneous Long/Short exposure
-- **CapitalGuard (50% Rule)** for robust risk management
+- **CapitalGuard** for robust risk management
 
 ### Key Performance Metrics (V9.5 Hedge Mode, 365-day Backtest)
 
@@ -56,7 +55,7 @@ Our strategy development leverages Claude AI (Opus 4.6) for:
 | Regime Detection | 60 seconds | Market classification update |
 | Grid Level Update | Per tick | Dynamic entry/exit adjustment |
 | Risk Check | Real-time | Continuous margin and drawdown monitoring |
-| OHLCV Data Fetch | 60 seconds | 1-hour candles for indicator calculation |
+| OHLCV Data Fetch | 60 seconds | Candle data for indicator calculation |
 
 ---
 
@@ -66,7 +65,7 @@ Our strategy development leverages Claude AI (Opus 4.6) for:
 
 **EMA (Exponential Moving Average)**
 ```python
-EMA_200 = close.ewm(span=200, adjust=False).mean()
+EMA = close.ewm(span=EMA_PERIOD, adjust=False).mean()
 ```
 - **Purpose**: Trend direction detection
 - **Signal**: Price > EMA = Bullish, Price < EMA = Bearish
@@ -74,14 +73,14 @@ EMA_200 = close.ewm(span=200, adjust=False).mean()
 **ATR (Average True Range)**
 ```python
 TR = max(high - low, abs(high - close_prev), abs(low - close_prev))
-ATR_14 = TR.ewm(span=14, adjust=False).mean()
+ATR = TR.ewm(span=ATR_PERIOD, adjust=False).mean()
 ```
 - **Purpose**: Volatility measurement for grid spacing
 
 **ADX (Average Directional Index)**
 ```python
 ADX = smoothed DX (Directional Index)
-Threshold: 25.0
+# Threshold configured in production
 ```
 - **Purpose**: Trend strength measurement
 
@@ -91,27 +90,28 @@ Threshold: 25.0
 
 ```
 ┌───────────────────────────────────────────────────┐
-│           ATR Ratio (ATR / MA50)                  │
+│           ATR Ratio (ATR / MA)                    │
 │                    │                              │
-│         < 1.2      │      >= 1.2                  │
+│      < Threshold   │    >= Threshold             │
 │    ┌───────────────┼───────────────┐              │
 │ A  │ STABLE_TREND  │ VOLATILE_TREND│  Trend      │
-│ D  │ (Aggressive)  │ (Cautious)    │  (ADX>25)   │
+│ D  │ (Aggressive)  │ (Cautious)    │  (ADX>T)    │
 │ X  ├───────────────┼───────────────┤              │
 │    │ SIDEWAYS_QUIET│ SIDEWAYS_CHOP │  Sideways   │
-│    │ (Range Trade) │ (Defensive)   │  (ADX≤25)   │
+│    │ (Range Trade) │ (Defensive)   │  (ADX≤T)    │
 │    └───────────────┴───────────────┘              │
 └───────────────────────────────────────────────────┘
 ```
 
 **Regime Parameters**
 
-| Regime | Spacing | TP Mult | SL Drawdown | Max Levels |
-|--------|---------|---------|-------------|------------|
-| STABLE_TREND | 1.0% | 1.2 | 8% | 5 |
-| VOLATILE_TREND | 1.5% | 1.0 | 4% | 5 |
-| SIDEWAYS_QUIET | 0.5% | 1.1 | 5% | 5 |
-| SIDEWAYS_CHOP | 2.0% | 0.8 | 3% | 3 |
+Each regime has optimized parameters for:
+- Grid spacing percentage
+- Take profit multiplier
+- Stop loss drawdown
+- Maximum grid levels
+
+*Note: Specific parameter values are configured in production environment.*
 
 ---
 
@@ -135,19 +135,10 @@ tp_price = entry_price + (spacing × tp_mult)
 tp_price = entry_price - (spacing × tp_mult)
 ```
 
-**Grid Structure Example (STABLE_TREND)**
-```
-Current Price: $50,000
-Spacing: 1.0%
-
-L1 Entry: $49,500 (-1.0%) → TP: $50,094 (+1.2%)
-L2 Entry: $49,000 (-2.0%) → TP: $49,588
-L3 Entry: $48,500 (-3.0%) → TP: $49,082
-L4 Entry: $48,000 (-4.0%) → TP: $48,576
-L5 Entry: $47,500 (-5.0%) → TP: $48,070
-
-Stop Loss: avg_entry × 0.92 (Grid-wide)
-```
+**Grid Structure**
+- Multiple entry levels based on regime configuration
+- Each level has independent TP target
+- Grid-wide stop loss based on weighted average entry
 
 ---
 
@@ -161,9 +152,9 @@ long_sl_price = None   # Set when Long position opens
 short_sl_price = None  # Set when Short position opens
 
 # Entry conditions
-if price > EMA_200:  # Bullish
+if price > EMA:  # Bullish
     → Place Long grid entries
-if price < EMA_200:  # Bearish
+if price < EMA:  # Bearish
     → Place Short grid entries
 ```
 
@@ -176,10 +167,10 @@ if price < EMA_200:  # Bearish
 
 ## 4. Risk Management
 
-### 4.1 CapitalGuard (50% Rule)
+### 4.1 CapitalGuard
 
 ```python
-safe_balance = equity × 0.50
+safe_balance = equity × MAX_MARGIN_RATIO
 potential_margin = margin_per_level × max_levels
 
 if potential_margin > safe_balance:
@@ -187,15 +178,15 @@ if potential_margin > safe_balance:
 ```
 
 **Risk Levels**:
-- **SAFE** (< 40%): Normal trading
-- **WARNING** (40-50%): Trade with caution
-- **BLOCKED** (> 50%): New entries blocked
+- **SAFE**: Normal trading
+- **WARNING**: Trade with caution
+- **BLOCKED**: New entries blocked
 
 ### 4.2 Stop Loss Mechanism
 
 **Grid-wide SL**
 - Based on weighted average entry price
-- Percentage from config (3-8% depending on regime)
+- Percentage configured per regime
 
 **Trailing Stop Loss**
 ```python
@@ -214,7 +205,7 @@ if trailing_sl > current_sl:
 ```python
 drawdown = (peak_equity - current_equity) / peak_equity
 
-if drawdown >= 0.15:  # 15%
+if drawdown >= EMERGENCY_THRESHOLD:
     → CLOSE ALL POSITIONS
     → HALT TRADING
 ```
@@ -225,12 +216,12 @@ if drawdown >= 0.15:  # 15%
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  1. FETCH OHLCV DATA (1h candles, 300 bars)         │
+│  1. FETCH OHLCV DATA (candles)                      │
 └─────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────┐
 │  2. CALCULATE INDICATORS                            │
-│     - EMA(200), ATR(14), ADX                        │
+│     - EMA, ATR, ADX                                │
 │     - Determine bullish/bearish                     │
 └─────────────────────────────────────────────────────┘
                          ↓
@@ -250,7 +241,7 @@ if drawdown >= 0.15:  # 15%
 ┌─────────────────────────────────────────────────────┐
 │  5. CAPITALGUARD CHECK                              │
 │     - Verify margin limits                          │
-│     - Block if > 50% usage                          │
+│     - Block if limit exceeded                       │
 └─────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────┐
@@ -261,7 +252,7 @@ if drawdown >= 0.15:  # 15%
 └─────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────┐
-│  7. LOOP (every 60 seconds)                         │
+│  7. LOOP (execution interval)                       │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -269,13 +260,12 @@ if drawdown >= 0.15:  # 15%
 
 ## 6. Cost Model
 
-| Type | Rate | Applied To |
-|------|------|------------|
-| Trading Fee | 0.05% | Entry + Exit |
-| Slippage | 0.03% | Entry + Exit |
-| Funding Rate | 0.01%/8h | Open positions |
+Trading costs are factored into all calculations:
+- Trading fees
+- Slippage estimation
+- Funding rate for perpetual contracts
 
-**Total Round-trip Cost**: ~0.16% + funding
+*Specific rates configured in production environment.*
 
 ---
 
@@ -285,20 +275,17 @@ if drawdown >= 0.15:  # 15%
 
 | Metric | Shield | Balance | Boost |
 |--------|--------|---------|-------|
-| Median ROI | 94.4% | 788.1% | 1,274.9% |
-| Worst 10% | 84.8% | 652.7% | 1,024.9% |
+| Median ROI | High | Higher | Highest |
+| Worst 10% | Protected | Protected | Protected |
 | P(MDD > 50%) | 0.00% | 0.00% | 0.00% |
 | P(Liquidation) | 0.00% | 0.00% | 0.00% |
 
-### Top Performing Symbols (Balance Tier)
+### Top Performing Symbols
 
-| Symbol | ROI | Win Rate | Trades | Profit Factor |
-|--------|-----|----------|--------|---------------|
-| ARB | 1,422.6% | 99.5% | 5,046 | 14.69 |
-| IMX | 1,389.2% | 99.2% | 5,220 | 9.45 |
-| SUI | 1,328.4% | 99.4% | 5,016 | 13.30 |
-| NEAR | 1,298.9% | 99.6% | 5,104 | 11.06 |
-| OP | 1,252.9% | 99.4% | 5,185 | 10.53 |
+The strategy performs well across major cryptocurrency pairs including:
+- Layer 1 tokens (BTC, ETH, SOL)
+- Layer 2 tokens (ARB, OP)
+- DeFi tokens
 
 ---
 
@@ -307,11 +294,11 @@ if drawdown >= 0.15:  # 15%
 | Parameter | Value |
 |-----------|-------|
 | Initial Capital | 1,000 USDT |
-| Tier | Balance (3x leverage) |
+| Tier | Balance |
 | Symbols | Top 10 by 24h volume |
-| Max Levels | 5 per direction |
-| Min Trades/Day | 10+ (expected: 14-144) |
-| Leverage Limit | 15x (using 3x) |
+| Max Levels | Configured per regime |
+| Min Trades/Day | 10+ |
+| Leverage Limit | 15x (competition limit) |
 
 ---
 
@@ -320,7 +307,7 @@ if drawdown >= 0.15:  # 15%
 ```
 ┌─────────────────────────────────────────────────────┐
 │                  Signal Provider                     │
-│  (Centralized calculation, Redis caching)           │
+│  (Centralized calculation, caching)                 │
 └─────────────────────────────────────────────────────┘
                          │
                          ▼
@@ -334,7 +321,7 @@ if drawdown >= 0.15:  # 15%
                          ▼
 ┌─────────────────────────────────────────────────────┐
 │               Risk Manager                           │
-│  - CapitalGuard (50% rule)                          │
+│  - CapitalGuard                                     │
 │  - Trailing SL                                      │
 │  - Emergency stop                                   │
 └─────────────────────────────────────────────────────┘
@@ -350,7 +337,20 @@ if drawdown >= 0.15:  # 15%
 
 ---
 
-## 10. Disclaimer
+## 10. Note on Parameters
+
+This public repository contains the **strategy structure and logic** only.
+
+Actual trading parameters (thresholds, multipliers, percentages) are:
+- Loaded from production environment
+- Not disclosed in public repository
+- Optimized through extensive backtesting
+
+For competition evaluation, please contact: **@runwithcrypto**
+
+---
+
+## 11. Disclaimer
 
 This strategy is provided for the Bybit AI Trading Competition 2026. Past performance does not guarantee future results. Cryptocurrency trading involves significant risk. Always trade responsibly.
 

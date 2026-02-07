@@ -1,12 +1,15 @@
 """
 Risk Manager - CapitalGuard Implementation
 
-Implements the 50% Rule and other risk management mechanisms.
+Implements margin limits and risk management mechanisms.
 
 Author: AYC Fund (YC W22)
 Version: 9.5
+
+Note: Risk parameters loaded from production configuration.
 """
 
+import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Dict
@@ -17,10 +20,10 @@ logger = logging.getLogger(__name__)
 
 class RiskLevel(str, Enum):
     """Risk level classification."""
-    SAFE = "safe"           # < 40% margin usage
-    WARNING = "warning"     # 40-50% margin usage
-    BLOCKED = "blocked"     # > 50% margin usage
-    EMERGENCY = "emergency" # Critical drawdown
+    SAFE = "safe"
+    WARNING = "warning"
+    BLOCKED = "blocked"
+    EMERGENCY = "emergency"
 
 
 @dataclass
@@ -35,39 +38,32 @@ class RiskCheckResult:
 
 class CapitalGuard:
     """
-    CapitalGuard - 50% Rule Implementation.
+    CapitalGuard - Margin Limit Implementation.
 
-    Prevents over-leveraging by limiting margin usage to 50% of equity.
-    This ensures sufficient buffer for drawdowns and margin calls.
+    Prevents over-leveraging by limiting margin usage.
+    Ensures sufficient buffer for drawdowns and margin calls.
 
-    Risk Levels:
-    - SAFE (< 40%): Normal trading allowed
-    - WARNING (40-50%): Trading allowed with caution
-    - BLOCKED (> 50%): New entries blocked
+    Note: Actual threshold values loaded from production configuration.
     """
-
-    # Configuration
-    MAX_MARGIN_RATIO = 0.50      # 50% maximum margin usage
-    WARNING_THRESHOLD = 0.40     # 40% warning level
-    EMERGENCY_DRAWDOWN = 0.15    # 15% emergency stop
 
     def __init__(
         self,
-        max_margin_ratio: float = 0.50,
-        warning_threshold: float = 0.40,
-        emergency_drawdown: float = 0.15,
+        max_margin_ratio: float = None,
+        warning_threshold: float = None,
+        emergency_drawdown: float = None,
     ):
         """
         Initialize CapitalGuard.
 
         Args:
-            max_margin_ratio: Maximum allowed margin as % of equity (default: 0.50)
-            warning_threshold: Warning level for margin usage (default: 0.40)
-            emergency_drawdown: Emergency stop drawdown level (default: 0.15)
+            max_margin_ratio: Maximum allowed margin as % of equity
+            warning_threshold: Warning level for margin usage
+            emergency_drawdown: Emergency stop drawdown level
         """
-        self.max_margin_ratio = max_margin_ratio
-        self.warning_threshold = warning_threshold
-        self.emergency_drawdown = emergency_drawdown
+        # Load from production config
+        self.max_margin_ratio = max_margin_ratio or float(os.getenv("MAX_MARGIN_RATIO", "0"))
+        self.warning_threshold = warning_threshold or float(os.getenv("WARNING_THRESHOLD", "0"))
+        self.emergency_drawdown = emergency_drawdown or float(os.getenv("EMERGENCY_DRAWDOWN", "0"))
 
     def check_entry(
         self,
@@ -100,12 +96,12 @@ class CapitalGuard:
         margin_ratio = total_margin / equity
 
         # Determine risk level and decision
-        if margin_ratio > self.max_margin_ratio:
+        if self.max_margin_ratio > 0 and margin_ratio > self.max_margin_ratio:
             return RiskCheckResult(
                 allowed=False,
                 risk_level=RiskLevel.BLOCKED,
                 margin_ratio=margin_ratio,
-                message=f"Margin limit exceeded: {margin_ratio:.1%} > {self.max_margin_ratio:.0%}",
+                message=f"Margin limit exceeded: {margin_ratio:.1%}",
                 details={
                     "equity": equity,
                     "current_margin": current_margin,
@@ -115,7 +111,7 @@ class CapitalGuard:
                 }
             )
 
-        if margin_ratio > self.warning_threshold:
+        if self.warning_threshold > 0 and margin_ratio > self.warning_threshold:
             return RiskCheckResult(
                 allowed=True,
                 risk_level=RiskLevel.WARNING,
@@ -136,7 +132,7 @@ class CapitalGuard:
             details={
                 "equity": equity,
                 "total_margin": total_margin,
-                "remaining": safe_balance - total_margin,
+                "remaining": safe_balance - total_margin if safe_balance > 0 else 0,
             }
         )
 
@@ -187,23 +183,23 @@ class CapitalGuard:
 
         drawdown = (peak_equity - current_equity) / peak_equity
 
-        if drawdown >= self.emergency_drawdown:
+        if self.emergency_drawdown > 0 and drawdown >= self.emergency_drawdown:
             return RiskCheckResult(
                 allowed=False,
                 risk_level=RiskLevel.EMERGENCY,
                 margin_ratio=drawdown,
-                message=f"EMERGENCY STOP: Drawdown {drawdown:.1%} >= {self.emergency_drawdown:.0%}",
+                message=f"EMERGENCY STOP: Drawdown {drawdown:.1%}",
                 details={
                     "current_equity": current_equity,
                     "peak_equity": peak_equity,
                     "drawdown": drawdown,
-                    "threshold": self.emergency_drawdown,
                 }
             )
 
+        warning_level = self.emergency_drawdown * 0.67 if self.emergency_drawdown > 0 else 0.10
         return RiskCheckResult(
             allowed=True,
-            risk_level=RiskLevel.SAFE if drawdown < 0.10 else RiskLevel.WARNING,
+            risk_level=RiskLevel.SAFE if drawdown < warning_level else RiskLevel.WARNING,
             margin_ratio=drawdown,
             message=f"Drawdown: {drawdown:.1%}",
             details={
@@ -236,16 +232,16 @@ class CapitalGuard:
         """
         # Calculate desired position
         desired_value = equity * capital_pct
-        desired_margin = desired_value / leverage
+        desired_margin = desired_value / leverage if leverage > 0 else desired_value
 
         # Check against limits
-        safe_balance = equity * self.max_margin_ratio
+        safe_balance = equity * self.max_margin_ratio if self.max_margin_ratio > 0 else equity
         available_margin = max(0, safe_balance - current_margin)
 
         # Adjust if needed
         if desired_margin > available_margin:
             actual_margin = available_margin
-            actual_value = actual_margin * leverage
+            actual_value = actual_margin * leverage if leverage > 0 else actual_margin
             adjusted = True
         else:
             actual_margin = desired_margin
@@ -275,28 +271,29 @@ class RiskManager:
     - Position sizing
     - Drawdown monitoring
     - Daily loss limits
-    - Correlation limits
+
+    Note: Parameters loaded from production configuration.
     """
 
     def __init__(
         self,
-        max_margin_ratio: float = 0.50,
-        emergency_drawdown: float = 0.15,
-        daily_loss_limit: float = 0.05,
+        max_margin_ratio: float = None,
+        emergency_drawdown: float = None,
+        daily_loss_limit: float = None,
     ):
         """
         Initialize Risk Manager.
 
         Args:
-            max_margin_ratio: Maximum margin usage (default: 0.50)
-            emergency_drawdown: Emergency stop level (default: 0.15)
-            daily_loss_limit: Maximum daily loss (default: 0.05)
+            max_margin_ratio: Maximum margin usage
+            emergency_drawdown: Emergency stop level
+            daily_loss_limit: Maximum daily loss
         """
         self.capital_guard = CapitalGuard(
             max_margin_ratio=max_margin_ratio,
             emergency_drawdown=emergency_drawdown,
         )
-        self.daily_loss_limit = daily_loss_limit
+        self.daily_loss_limit = daily_loss_limit or float(os.getenv("DAILY_LOSS_LIMIT", "0"))
         self.peak_equity = 0.0
         self.daily_starting_equity = 0.0
 
@@ -335,7 +332,7 @@ class RiskManager:
             return emergency_check
 
         # 2. Check daily loss limit
-        if self.daily_starting_equity > 0:
+        if self.daily_starting_equity > 0 and self.daily_loss_limit > 0:
             daily_pnl = (current_equity - self.daily_starting_equity) / self.daily_starting_equity
             if daily_pnl <= -self.daily_loss_limit:
                 return RiskCheckResult(
@@ -355,24 +352,6 @@ class RiskManager:
 if __name__ == "__main__":
     print("Risk Manager - CapitalGuard V9.5")
     print("=" * 50)
-
-    guard = CapitalGuard()
-
-    # Example scenario
-    equity = 10000
-    current_margin = 2000
-    proposed_margin = 3000
-
-    result = guard.check_entry(equity, current_margin, proposed_margin)
-
-    print(f"\nExample Check:")
-    print(f"  Equity: ${equity:,.2f}")
-    print(f"  Current Margin: ${current_margin:,.2f}")
-    print(f"  Proposed Margin: ${proposed_margin:,.2f}")
-    print(f"  Total Margin: ${current_margin + proposed_margin:,.2f}")
-    print(f"  Safe Balance (50%): ${equity * 0.5:,.2f}")
-    print(f"\nResult:")
-    print(f"  Allowed: {result.allowed}")
-    print(f"  Risk Level: {result.risk_level.value}")
-    print(f"  Margin Ratio: {result.margin_ratio:.1%}")
-    print(f"  Message: {result.message}")
+    print("\nNote: Risk parameters loaded from environment.")
+    print("This public repository contains strategy structure only.")
+    print("\nFor competition evaluation, contact: @runwithcrypto")

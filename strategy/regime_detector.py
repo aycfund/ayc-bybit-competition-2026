@@ -5,8 +5,11 @@ Classifies market conditions using ADX and ATR ratio for adaptive trading.
 
 Author: AYC Fund (YC W22)
 Version: 9.5
+
+Note: Threshold values loaded from production configuration.
 """
 
+import os
 import pandas as pd
 import numpy as np
 from enum import Enum
@@ -19,8 +22,8 @@ class MarketRegime(str, Enum):
     4-Quadrant Market Regime Classification.
 
     Based on two dimensions:
-    1. Trend Strength (ADX > 25 = Trending, ADX <= 25 = Sideways)
-    2. Volatility (ATR Ratio > 1.2 = High, ATR Ratio <= 1.2 = Low)
+    1. Trend Strength (ADX threshold configured in production)
+    2. Volatility (ATR Ratio threshold configured in production)
 
     Quadrants:
     - STABLE_TREND: Strong trend, low volatility (best for grid trading)
@@ -40,9 +43,9 @@ class RegimeAnalysis:
     """Complete regime analysis result."""
     regime: MarketRegime
     trend_strength: float      # ADX value
-    volatility_ratio: float    # ATR / MA(ATR, 50)
-    ema_200: float
-    atr_14: float
+    volatility_ratio: float    # ATR / MA(ATR)
+    ema_value: float
+    atr_value: float
     is_bullish: bool
     is_bearish: bool
     confidence: float          # 0-1 confidence score
@@ -54,38 +57,39 @@ class RegimeDetector:
 
     Uses ADX for trend strength and ATR ratio for volatility measurement.
     Classifies market into one of four regimes for adaptive trading.
-    """
 
-    # Thresholds
-    ADX_THRESHOLD = 25.0        # ADX > 25 = Trending market
-    ATR_VOL_THRESHOLD = 1.2     # ATR Ratio > 1.2 = High volatility
+    Note: Threshold values loaded from production configuration
+    for competitive advantage protection.
+    """
 
     def __init__(
         self,
-        window_short: int = 14,
-        window_long: int = 50,
-        ema_period: int = 200,
+        window_short: int = None,
+        window_long: int = None,
+        ema_period: int = None,
     ):
         """
         Initialize regime detector.
 
         Args:
-            window_short: Short window for ATR and ADX calculation (default: 14)
-            window_long: Long window for ATR moving average (default: 50)
-            ema_period: EMA period for trend direction (default: 200)
+            window_short: Short window for ATR and ADX calculation
+            window_long: Long window for ATR moving average
+            ema_period: EMA period for trend direction
         """
-        self.window_short = window_short
-        self.window_long = window_long
-        self.ema_period = ema_period
+        # Load from production config or use defaults
+        self.window_short = window_short or int(os.getenv("ATR_WINDOW_SHORT", "14"))
+        self.window_long = window_long or int(os.getenv("ATR_WINDOW_LONG", "50"))
+        self.ema_period = ema_period or int(os.getenv("EMA_PERIOD", "200"))
+
+        # Thresholds loaded from production config
+        self.adx_threshold = float(os.getenv("ADX_THRESHOLD", "0"))
+        self.atr_vol_threshold = float(os.getenv("ATR_VOL_THRESHOLD", "0"))
 
     def calculate_adx(self, df: pd.DataFrame) -> pd.Series:
         """
         Calculate Average Directional Index (ADX).
 
-        ADX measures trend strength:
-        - ADX > 25: Strong trend
-        - ADX < 20: Weak trend / Sideways
-        - ADX > 40: Very strong trend
+        ADX measures trend strength - thresholds configured in production.
 
         Returns:
             Series with ADX values
@@ -148,10 +152,7 @@ class RegimeDetector:
         """
         Calculate ATR ratio (current ATR / MA of ATR).
 
-        Measures relative volatility:
-        - Ratio > 1.2: Higher than normal volatility
-        - Ratio < 0.8: Lower than normal volatility
-        - Ratio ≈ 1.0: Normal volatility
+        Measures relative volatility - thresholds configured in production.
 
         Returns:
             Current ATR ratio
@@ -174,19 +175,10 @@ class RegimeDetector:
         """
         Detect current market regime.
 
-        Classification Logic:
-        ┌───────────────────────────────────────────────────┐
-        │           ATR Ratio (ATR / MA50)                  │
-        │                    │                              │
-        │         < 1.2      │      >= 1.2                  │
-        │    ┌───────────────┼───────────────┐              │
-        │ A  │ STABLE_TREND  │ VOLATILE_TREND│  Trend      │
-        │ D  │               │               │  (ADX>25)   │
-        │ X  ├───────────────┼───────────────┤              │
-        │    │ SIDEWAYS_QUIET│ SIDEWAYS_CHOP │  Sideways   │
-        │    │               │               │  (ADX≤25)   │
-        │    └───────────────┴───────────────┘              │
-        └───────────────────────────────────────────────────┘
+        Classification Logic (4-Quadrant):
+        - Uses ADX threshold to determine trending vs sideways
+        - Uses ATR ratio threshold to determine volatility level
+        - Thresholds are loaded from production configuration
 
         Returns:
             MarketRegime classification
@@ -198,9 +190,9 @@ class RegimeDetector:
         current_adx = adx.iloc[-1]
         atr_ratio = self.calculate_atr_ratio(df)
 
-        # 4-Quadrant Classification
-        is_trending = current_adx > self.ADX_THRESHOLD
-        is_volatile = atr_ratio >= self.ATR_VOL_THRESHOLD
+        # 4-Quadrant Classification using production thresholds
+        is_trending = current_adx > self.adx_threshold
+        is_volatile = atr_ratio >= self.atr_vol_threshold
 
         if is_trending:
             if is_volatile:
@@ -225,8 +217,8 @@ class RegimeDetector:
                 regime=MarketRegime.UNKNOWN,
                 trend_strength=0.0,
                 volatility_ratio=1.0,
-                ema_200=0.0,
-                atr_14=0.0,
+                ema_value=0.0,
+                atr_value=0.0,
                 is_bullish=False,
                 is_bearish=False,
                 confidence=0.0,
@@ -253,17 +245,20 @@ class RegimeDetector:
         # Detect regime
         regime = self.detect_regime(df)
 
-        # Calculate confidence (based on how far from thresholds)
-        adx_distance = abs(current_adx - self.ADX_THRESHOLD) / self.ADX_THRESHOLD
-        vol_distance = abs(atr_ratio - self.ATR_VOL_THRESHOLD) / self.ATR_VOL_THRESHOLD
-        confidence = min(1.0, (adx_distance + vol_distance) / 2)
+        # Calculate confidence (based on distance from thresholds)
+        if self.adx_threshold > 0 and self.atr_vol_threshold > 0:
+            adx_distance = abs(current_adx - self.adx_threshold) / self.adx_threshold
+            vol_distance = abs(atr_ratio - self.atr_vol_threshold) / self.atr_vol_threshold
+            confidence = min(1.0, (adx_distance + vol_distance) / 2)
+        else:
+            confidence = 0.0
 
         return RegimeAnalysis(
             regime=regime,
             trend_strength=current_adx,
             volatility_ratio=atr_ratio,
-            ema_200=current_ema,
-            atr_14=current_atr,
+            ema_value=current_ema,
+            atr_value=current_atr,
             is_bullish=is_bullish,
             is_bearish=is_bearish,
             confidence=confidence,
@@ -285,16 +280,6 @@ class RegimeDetector:
 if __name__ == "__main__":
     print("Market Regime Detector V9.5")
     print("=" * 50)
-    print("\nRegime Classification:")
-    print("  - STABLE_TREND: ADX > 25, ATR Ratio < 1.2")
-    print("  - VOLATILE_TREND: ADX > 25, ATR Ratio >= 1.2")
-    print("  - SIDEWAYS_QUIET: ADX <= 25, ATR Ratio < 1.2")
-    print("  - SIDEWAYS_CHOP: ADX <= 25, ATR Ratio >= 1.2")
-
-    detector = RegimeDetector()
-    print(f"\nConfiguration:")
-    print(f"  ADX Threshold: {detector.ADX_THRESHOLD}")
-    print(f"  ATR Vol Threshold: {detector.ATR_VOL_THRESHOLD}")
-    print(f"  Short Window: {detector.window_short}")
-    print(f"  Long Window: {detector.window_long}")
-    print(f"  EMA Period: {detector.ema_period}")
+    print("\nNote: Production thresholds loaded from environment.")
+    print("This public repository contains strategy structure only.")
+    print("\nFor competition evaluation, contact: @runwithcrypto")
