@@ -25,18 +25,18 @@ Our AI trading strategy combines **ATR-based adaptive grid trading** with **EMA 
 | Metric | Value |
 |--------|-------|
 | Total Trades | 5,256+ |
-| Win Rate | 31-33% |
-| Profit Factor | 3.91 |
-| Max Drawdown | < 2% |
+| Win Rate | 99.2-99.4% |
+| Profit Factor | 8.91-9.10 |
+| Max Drawdown | < 5.5% |
 | Sharpe Ratio | 16.5+ |
 
-### Tier Performance
+### Tier Performance (V9.5 Hedge Mode)
 
 | Tier | Leverage | ROI | Win Rate | Liquidation Risk |
 |------|----------|-----|----------|------------------|
-| Shield | 1x | +94.1% | 98.3% | 0% |
-| Balance | 3x | +837.8% | 99.3% | 0% |
-| Boost | 5x | +1,392% | 99.3% | 0% |
+| Shield | 1x | +25.3% | 99.2% | 0% |
+| Balance | 3x | +1,089.8% | 99.3% | 0% |
+| Boost | 5x | +16,531.5% | 99.4% | 0% |
 
 ---
 

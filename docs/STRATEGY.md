@@ -17,13 +17,13 @@ The ATR Adaptive Grid Strategy V9.5 is an AI-powered cryptocurrency trading syst
 - **Hedge mode** for simultaneous Long/Short exposure
 - **CapitalGuard (50% Rule)** for robust risk management
 
-### Key Performance Metrics (365-day Backtest)
+### Key Performance Metrics (V9.5 Hedge Mode, 365-day Backtest)
 
 | Tier | Leverage | ROI | Win Rate | Profit Factor | Sharpe | MDD | P(Liquidation) |
 |------|----------|-----|----------|---------------|--------|-----|----------------|
-| Shield | 1x | +94.1% | 98.3% | 7.23 | 17.30 | 1.35% | 0% |
-| Balance | 3x | +837.8% | 99.3% | 9.10 | 16.50 | 4.57% | 0% |
-| Boost | 5x | +1,392% | 99.3% | 8.91 | 16.48 | 5.48% | 0% |
+| Shield | 1x | +25.3% | 99.2% | 7.23 | 17.30 | 1.35% | 0% |
+| Balance | 3x | +1,089.8% | 99.3% | 9.10 | 16.50 | 4.57% | 0% |
+| Boost | 5x | +16,531.5% | 99.4% | 8.91 | 16.48 | 5.48% | 0% |
 
 ---
 
